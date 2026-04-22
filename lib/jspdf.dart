@@ -39,3 +39,11 @@ export 'src/modules/outline.dart';
 export 'src/modules/viewerpreferences.dart';
 export 'src/modules/jpeg_support.dart';
 export 'src/modules/cell.dart';
+export 'src/modules/utf8.dart';
+export 'src/modules/png_support.dart';
+export 'src/modules/context2d.dart';
+export 'src/modules/html.dart';
+
+// Libs
+export 'src/pdfname.dart';
+export 'src/libs/ttffont.dart';

@@ -4,7 +4,6 @@ import 'package:jspdf/src/fonts.dart';
 import 'package:jspdf/src/gstate.dart';
 import 'package:jspdf/src/pattern.dart';
 import 'package:jspdf/src/pdf_document.dart';
-import 'package:jspdf/src/matrix.dart';
 
 void main() {
   group('PageFormats', () {

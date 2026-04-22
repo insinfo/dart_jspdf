@@ -69,22 +69,24 @@ lib/
 |---|---|---|---|
 | 3.1 | `jspdf.dart` | Classe principal unificando core + API pública (text, line, rect, circle, setFont, setFontSize, addPage, output, save) | ✅ |
 
-### Fase 4 — Módulos/Plugins ✅ PARCIALMENTE CONCLUÍDA
+### Fase 4 — Módulos/Plugins ✅ CONCLUÍDA
 | # | Módulo | Origem JS | Status |
 |---|---|---|---|
 | 4.1 | `split_text_to_size.dart` | modules/split_text_to_size.js | ✅ |
-| 4.2 | `standard_fonts_metrics.dart` | modules/standard_fonts_metrics.js | 🔜 |
+| 4.2 | `standard_fonts_metrics.dart` | modules/standard_fonts_metrics.js | ✅ (14 fontes, compress/uncompress, widths/kerning) |
 | 4.3 | `annotations.dart` | modules/annotations.js | ✅ |
-| 4.4 | `cell.dart` | modules/cell.js | 🔜 |
-| 4.5 | `utf8.dart` | modules/utf8.js | 🔜 |
+| 4.4 | `cell.dart` | modules/cell.js | ✅ (tabelas, alinhamento, padding, altura de linha) |
+| 4.5 | `utf8.dart` | modules/utf8.js | ✅ (Identity-H, WinAnsi, pdfEscape16, ToUnicode CMap) |
 | 4.6 | `total_pages.dart` | modules/total_pages.js | ✅ |
-| 4.7 | `autoprint.dart` | modules/autoprint.js | 🔜 |
+| 4.7 | `autoprint.dart` | modules/autoprint.js + javascript.js | ✅ (autoprint + addJS) |
+| 4.8 | `outline.dart` | modules/outline.js | ✅ (bookmarks/outlines hierárquicos) |
+| 4.9 | `viewerpreferences.dart` | modules/viewerpreferences.js | ✅ (17 preferências de visualização) |
 
 ### Fase 5 — Suporte a Imagens e Avançado ✅ PARCIALMENTE CONCLUÍDA
 | # | Módulo | Origem JS | Status |
 |---|---|---|---|
 | 5.1 | `addimage.dart` | modules/addimage.js | ✅ (detecção de tipo, JPEG info, base64, conversores) |
-| 5.2 | `jpeg_support.dart` | modules/jpeg_support.js | 🔜 |
+| 5.2 | `jpeg_support.dart` | modules/jpeg_support.js | ✅ (SOF parsing, processJpeg, color space detection) |
 | 5.3 | `png_support.dart` | modules/png_support.js | 🔜 |
 | 5.4 | `context2d.dart` | modules/context2d.js | 🔜 |
 | 5.5 | `html.dart` | modules/html.js (dart:html equivalent) | 🔜 |
@@ -135,9 +137,15 @@ lib/
 
 ## Fases 1–6 avançadas ✅
 
-**Total de arquivos portados:** 16 arquivos Dart
-**Testes unitários:** 121 testes ✅ All passed
+**Total de arquivos portados:** 25 arquivos Dart
+**Testes unitários:** 200 testes ✅ All passed
 **`dart analyze`: 0 issues** ✅
+
+### Libs portadas
+| Arquivo | Origem JS | Status |
+|---|---|---|
+| `lib/src/pdfname.dart` | libs/pdfname.js | ✅ (PDF Name Object encoding) |
+| `lib/src/libs/ttffont.dart` | libs/ttffont.js (~1950 linhas) | ✅ (parser TTF completo: Data, Directory, 10 tabelas, Subset, PDFObject) |
 
 ### Suíte de Testes
 | Arquivo de Teste | Cobertura | Testes |
@@ -146,6 +154,16 @@ lib/
 | `test/matrix_test.dart` | matrix.dart, geometry.dart | 17 |
 | `test/pubsub_test.dart` | pubsub.dart | 10 |
 | `test/color_test.dart` | color.dart, rgb_color.dart | 22 |
-| `test/core_test.dart` | page_formats, fonts, gstate, pattern, pdf_document | 28 |
+| `test/core_test.dart` | page_formats, fonts, gstate, pattern, pdf_document | 27 |
 | `test/addimage_test.dart` | modules/addimage.dart | 22 |
-| **Total** | | **121** |
+| `test/font_metrics_test.dart` | modules/standard_fonts_metrics.dart | 22 |
+| `test/modules_test.dart` | modules/outline, viewerpreferences, cell | 27 |
+| `test/jpeg_support_test.dart` | modules/jpeg_support.dart | 5 |
+| `test/utf8_test.dart` | pdfname, TtfData, PDFObject, utf8, ToUnicodeCmap | 26 |
+| **Total** | | **200** |
+
+### Próximos passos pendentes
+- `png_support.dart` — parsing de PNG (IHDR, IDAT, defiltering)
+- `context2d.dart` — Canvas 2D API para geração de PDF via path
+- `html.dart` — renderização de HTML para PDF
+- Testes de integração com TTF real (embedding de fontes em PDF)
