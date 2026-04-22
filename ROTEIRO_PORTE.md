@@ -7,6 +7,8 @@
 
 ---
 
+não dependa de nada de C:\MyDartProjects\jsPDF\referencias o que precisar compie para o repositorio pois no futuro esta pasta sera removida 
+
 ## Visão Geral da Arquitetura
 
 O jsPDF original é uma classe monolítica (~6180 linhas em `jspdf.js`) com plugins em `modules/` e utilitários em `libs/`.  

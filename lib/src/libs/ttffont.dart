@@ -435,7 +435,7 @@ class _CmapEntry {
 
     final segCount = startCodes.length;
     final segCountX2 = segCount * 2;
-    final searchRange = (2 * pow(log(segCount) / ln2, 2)).toInt();
+    final searchRange = (pow(2, (log(segCount) / ln2).floor()) * 2).toInt();
     final entrySelectr = (log(searchRange / 2) / ln2).toInt();
     final rangeShift = 2 * segCount - searchRange;
 
