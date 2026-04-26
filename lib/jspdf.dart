@@ -45,9 +45,15 @@ export 'src/modules/png_support.dart';
 export 'src/modules/context2d.dart';
 export 'src/modules/html.dart';
 export 'src/modules/setlanguage.dart';
+export 'src/modules/xmp_metadata.dart';
+export 'src/modules/filters.dart';
+export 'src/modules/rgba_support.dart';
+export 'src/modules/bmp_support.dart';
+export 'src/modules/canvas.dart';
 
 // Libs
 export 'src/pdfname.dart';
 export 'src/libs/ttffont.dart';
 export 'src/libs/fast_png.dart';
 export 'src/libs/zlib_codec.dart';
+export 'src/libs/bmp_decoder.dart';

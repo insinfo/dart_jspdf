@@ -14,6 +14,11 @@ import 'modules/png_support.dart';
 import 'modules/standard_fonts_metrics.dart';
 import 'modules/utf8.dart';
 import 'modules/setlanguage.dart';
+import 'modules/filters.dart';
+import 'modules/rgba_support.dart';
+import 'modules/bmp_support.dart';
+import 'modules/canvas.dart';
+import 'modules/xmp_metadata.dart';
 import 'page_formats.dart';
 import 'pattern.dart';
 import 'platform/browser_platform.dart' as browser;
@@ -99,6 +104,7 @@ class JsPdf {
   late final PdfDocumentBuilder _doc;
   late final PubSub _events;
   late final Context2D _context2d;
+  late final PdfCanvas _canvas;
   late final String Function(num) _hpf;
 
   // --- State ---
@@ -116,6 +122,9 @@ class JsPdf {
   late bool _r2l;
   // ignore: unused_field
   late List<String> _hotfixes;
+
+  // XMP Metadata
+  XmpMetadataConfig? _xmpMetadata;
 
   // Font state
   final Map<String, PdfFont> _fonts = {};
@@ -230,6 +239,7 @@ class JsPdf {
     );
     _events = PubSub();
     _context2d = Context2D(this);
+    _canvas = PdfCanvas()..attachContext(_context2d);
 
     // Configurar fontes padrão
     _addStandardFonts();
@@ -270,6 +280,12 @@ class JsPdf {
 
   /// Alias Dart-style para [context2d].
   Context2D get context2D => _context2d;
+
+  /// Canvas wrapper compatível com o plugin `canvas` do jsPDF.
+  ///
+  /// Uso: `pdf.canvas.getContext('2d')` retorna o mesmo [Context2D] que
+  /// `pdf.context2d`.
+  PdfCanvas get canvas => _canvas;
 
   /// ExtGState ativo na página atual, quando definido por [setGState].
   GState? get activeGState => _activeGState;
@@ -362,6 +378,41 @@ class JsPdf {
       _languageCode = languageCode;
     }
     return this;
+  }
+
+  /// Adiciona metadados XMP ao documento PDF.
+  ///
+  /// [metadata] — conteúdo XMP (XML ou valor simples).
+  /// [namespaceUriOrRawXml]:
+  ///   - `String` → URI do namespace para empacotar o valor como XMP simples.
+  ///   - `true` → [metadata] é XML completo e será incluído verbatim.
+  ///   - `false` / `null` → [metadata] é escapado e empacotado com
+  ///     namespace padrão.
+  ///
+  /// Chamadas repetidas sobrescrevem os metadados anteriores.
+  JsPdf addMetadata(String metadata, [dynamic namespaceUriOrRawXml]) {
+    bool rawXml = false;
+    String namespaceUri = 'http://jspdf.default.namespaceuri/';
+
+    if (namespaceUriOrRawXml is String) {
+      namespaceUri = namespaceUriOrRawXml;
+    } else if (namespaceUriOrRawXml is bool) {
+      rawXml = namespaceUriOrRawXml;
+    }
+
+    _xmpMetadata = XmpMetadataConfig(
+      metadata: metadata,
+      namespaceUri: namespaceUri,
+      rawXml: rawXml,
+    );
+    return this;
+  }
+
+  /// Processa [data] através de uma cadeia de filtros PDF.
+  ///
+  /// Delega para [processDataByFilters] do módulo `filters.dart`.
+  FilterResult applyFilters(String data, List<String> filterChain) {
+    return processDataByFilters(data, filterChain);
   }
 
   /// Adiciona um arquivo ao Virtual File System interno.
@@ -757,6 +808,32 @@ class JsPdf {
     return this;
   }
 
+  /// Adiciona e desenha uma imagem a partir de dados RGBA crus.
+  ///
+  /// [imageData] — pixels RGBA (4 bytes por pixel).
+  /// [x], [y] — posição no documento.
+  /// [width], [height] — tamanho no documento.
+  /// [alias] — alias opcional para cache.
+  JsPdf addImageFromRGBA(
+    RgbaImageData imageData,
+    double x,
+    double y,
+    double width,
+    double height, [
+    String? alias,
+  ]) {
+    final String imageAlias =
+        alias ?? sHashCode(imageData.data).toRadixString(16);
+    PdfImage? image = _imagesByAlias[imageAlias];
+    if (image == null) {
+      image = processRGBA(imageData, _images.length + 1, imageAlias);
+      _images.add(image);
+      _imagesByAlias[imageAlias] = image;
+    }
+    _drawImage(image, x, y, width, height);
+    return this;
+  }
+
   // ==========================================================================
   // Text
   // ==========================================================================
@@ -1052,6 +1129,11 @@ class JsPdf {
             ownerPassword: _encryptionOptions!.ownerPassword,
             fileId: _fileId,
           );
+
+    final String? xmpContent = _xmpMetadata != null
+        ? buildXmpContent(_xmpMetadata!)
+        : null;
+
     return _doc.buildDocument(
       fileId: _fileId,
       creationDate: _creationDate,
@@ -1062,6 +1144,7 @@ class JsPdf {
       languageCode: _languageCode,
       putResourcesCallback: _putResources,
       security: security,
+      xmpMetadataContent: xmpContent,
     );
   }
 
@@ -1332,6 +1415,8 @@ class JsPdf {
         transparency: result.mask,
         alias: imageAlias,
       )..index = result.index;
+    } else if (imageType == 'BMP') {
+      image = processBMP(bytes, _images.length + 1, imageAlias);
     } else {
       throw UnsupportedError('Unsupported image format: $imageType.');
     }

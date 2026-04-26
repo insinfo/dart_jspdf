@@ -1019,6 +1019,49 @@ class Context2D {
       roundToPrecision(value, 4).replaceAll(RegExp(r'\.$'), '');
 
   String _formatColor(int channel) => _format(channel / 255);
+
+  /// Sets a property on this context by name.
+  ///
+  /// Used by [PdfCanvas.getContext] to apply `contextAttributes` entries.
+  /// Unknown property names are silently ignored.
+  void applyAttribute(String key, dynamic value) {
+    switch (key) {
+      case 'fillStyle':
+        if (value is String) fillStyle = value;
+        break;
+      case 'strokeStyle':
+        if (value is String) strokeStyle = value;
+        break;
+      case 'lineWidth':
+        if (value is num) lineWidth = value.toDouble();
+        break;
+      case 'font':
+        if (value is String) font = value;
+        break;
+      case 'globalAlpha':
+        if (value is num) globalAlpha = value.toDouble();
+        break;
+      case 'textAlign':
+        if (value is String) textAlign = value;
+        break;
+      case 'textBaseline':
+        if (value is String) textBaseline = value;
+        break;
+      case 'lineCap':
+        if (value is String) lineCap = value;
+        break;
+      case 'lineJoin':
+        if (value is String) lineJoin = value;
+        break;
+      case 'miterLimit':
+        if (value is num) miterLimit = value.toDouble();
+        break;
+      case 'ignoreClearRect':
+        if (value is bool) ignoreClearRect = value;
+        break;
+      // Additional known properties can be added here.
+    }
+  }
 }
 
 class _ArcOperators {

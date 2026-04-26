@@ -411,6 +411,7 @@ class PdfDocumentBuilder {
     String? layoutMode,
     String? pageMode,
     String? languageCode,
+    int? metadataObjectNumber,
   }) {
     newObject();
     out('<<');
@@ -470,6 +471,10 @@ class PdfDocumentBuilder {
 
     if (languageCode != null) {
       out('/Lang (${pdfEscape(languageCode)})');
+    }
+
+    if (metadataObjectNumber != null && metadataObjectNumber > 0) {
+      out('/Metadata $metadataObjectNumber 0 R');
     }
 
     out('>>');
@@ -535,6 +540,8 @@ class PdfDocumentBuilder {
     String? languageCode,
     void Function()? putResourcesCallback,
     PdfSecurity? security,
+    /// Optional XMP metadata content string (already built by [buildXmpContent]).
+    String? xmpMetadataContent,
   }) {
     resetDocument();
     setOutputDestination(_content);
@@ -552,6 +559,17 @@ class PdfDocumentBuilder {
       encryptionOid = objectNumber;
     }
 
+    // XMP Metadata stream (emitted before Info/Catalog so object numbers are known)
+    int? metadataObjectNumber;
+    if (xmpMetadataContent != null && xmpMetadataContent.isNotEmpty) {
+      metadataObjectNumber = newObject();
+      out('<< /Type /Metadata /Subtype /XML /Length ${xmpMetadataContent.length} >>');
+      out('stream');
+      out(xmpMetadataContent);
+      out('endstream');
+      out('endobj');
+    }
+
     putInfo(
       documentProperties: documentProperties,
       creationDate: creationDate,
@@ -562,6 +580,7 @@ class PdfDocumentBuilder {
       layoutMode: layoutMode,
       pageMode: pageMode,
       languageCode: languageCode,
+      metadataObjectNumber: metadataObjectNumber,
     );
 
     final offsetOfXRef = _contentLength;

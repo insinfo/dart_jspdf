@@ -95,11 +95,16 @@ lib/
 ### Fase 5 — Suporte a Imagens e Avançado ✅ PARCIALMENTE CONCLUÍDA
 | # | Módulo | Origem JS | Status |
 |---|---|---|---|
-| 5.1 | `addimage.dart` | modules/addimage.js | ✅ (detecção de tipo, JPEG info, base64, conversores, `addImage` PNG/JPEG e `/XObject`) |
+| 5.1 | `addimage.dart` | modules/addimage.js | ✅ (detecção de tipo, JPEG info, base64, conversores, `addImage` PNG/JPEG/BMP e `/XObject`) |
 | 5.2 | `jpeg_support.dart` | modules/jpeg_support.js | ✅ (SOF parsing, processJpeg, color space detection) |
 | 5.3 | `png_support.dart` | modules/png_support.js + libs/fast-png | ✅ (decode PNG local, PLTE/tRNS, filtros, SMask, Flate/ZLib web) |
-| 5.4 | `context2d.dart` | modules/context2d.js | ✅ PARCIAL (Canvas paths, fill/stroke/clip, texto básico, operadores PDF raw, `drawImage` PNG/JPEG; falta fidelidade de métricas para o editor e crop de imagem) |
+| 5.4 | `context2d.dart` | modules/context2d.js | ✅ PARCIAL (Canvas paths, fill/stroke/clip, texto básico, operadores PDF raw, `drawImage` PNG/JPEG; `applyAttribute` adicionado; falta fidelidade de métricas para o editor e crop de imagem) |
 | 5.5 | `html.dart` | modules/html.js | ✅ (parser textual HTML em Dart puro, entidades, blocos/listas/títulos, wrapping e paginação) |
+| 5.6 | `xmp_metadata.dart` | modules/xmp_metadata.js | ✅ (XMP XML packet em /Metadata, buildXmpContent, escapeXml, addMetadata) |
+| 5.7 | `filters.dart` | modules/filters.js | ✅ (ASCII85Encode/Decode, ASCIIHexEncode/Decode, FlateEncode/Decode, processDataByFilters pipeline) |
+| 5.8 | `rgba_support.dart` | modules/rgba_support.js | ✅ (processRGBA: RGBA→DeviceRGB + SMask, addImageFromRGBA) |
+| 5.9 | `bmp_support.dart` + `libs/bmp_decoder.dart` | modules/bmp_support.js + libs/BMPDecoder.js | ✅ (processBMP, BmpDecoder 1/4/8/15/16/24/32-bit, paleta, top/bottom-up) |
+| 5.10 | `canvas.dart` | modules/canvas.js | ✅ (PdfCanvas wrapper, getContext("2d"), width/height, style, childNodes, toDataURL stub) |
 
 ### Fase 6 — Exportação Web (dart:html) ✅ CONCLUÍDA
 | # | Funcionalidade | Status |
@@ -147,8 +152,8 @@ lib/
 
 ## Fases 1–6 avançadas ✅
 
-**Total de arquivos portados:** 34 arquivos Dart
-**Testes unitários:** 245 testes ✅ All passed
+**Total de arquivos portados:** 40 arquivos Dart
+**Testes unitários:** 282 testes ✅ All passed
 **`dart analyze`: 0 issues** ✅
 
 ### Libs portadas
@@ -181,10 +186,93 @@ lib/
 | `test/html_test.dart` | modules/html.dart | 5 |
 | `test/pdf_security_test.dart` | pdf_security.dart | 7 |
 | `test/ttffont_integration_test.dart` | TTFFont + vFS/addFont embedding | 9 |
-| **Total** | | **245** |
+| `test/new_modules_test.dart` | xmp_metadata, filters, rgba_support, bmp_support, bmp_decoder, canvas, context2d.applyAttribute | 37 |
+| **Total** | | **282** |
 
-### Próximos passos pendentes
-- Portar módulos avançados ainda ausentes da referência conforme prioridade: `xmp_metadata`, `svg`, `acroform`, `bmp/gif/webp_support`, `rgba_support`.
+### Análise do original em `referencias/` — lacunas de porte
+
+Análise realizada em 2026-04-26 contra `referencias/jsPDF-master/src` e `referencias/html2canvas-master/src`. A pasta `referencias/` continua sendo apenas fonte de comparação: o runtime do pacote Dart não deve depender dela.
+
+#### Módulos jsPDF originais ainda sem porte dedicado
+
+| Original JS | API principal no jsPDF | Status no porte Dart | Prioridade |
+|---|---|---|---|
+| `modules/acroform.js` | `addField`, `AcroFormTextField`, `AcroFormCheckBox`, `AcroFormRadioButton`, `AcroFormComboBox`, `AcroFormListBox`, `AcroFormPasswordField`, `AcroFormPushButton` | 🔜 Falta portar. Módulo grande (~3207 linhas), exige `/AcroForm`, campos, widgets, appearance streams e integração com `/Annots`. | Alta para compatibilidade jsPDF completa. |
+| `modules/arabic.js` | `processArabic`, `__arabicParser__` | 🔜 Falta portar. Faz shaping árabe, formas inicial/medial/final/isolada e ligaduras. | Alta para texto profissional RTL/árabe. |
+| `modules/bmp_support.js` | `processBMP` | ✅ Portado em `modules/bmp_support.dart` + `libs/bmp_decoder.dart`. Suporta 1/4/8/15/16/24/32-bit, paleta, bottom-up/top-down. | |
+| `modules/gif_support.js` | `processGIF87A`, `processGIF89A` | 🔜 Falta portar. Depende de decoder GIF local equivalente a `omggif`. | Média. |
+| `modules/webp_support.js` | `processWEBP` | 🔜 Falta portar. Depende de decoder WebP local. | Média. |
+| `modules/rgba_support.js` | `processRGBA` | ✅ Portado em `modules/rgba_support.dart`. Suporta RGBA→DeviceRGB + SMask opcional. | |
+| `modules/fileloading.js` | `loadFile`, `loadImageFile`, `allowFsRead` | 🔜 Falta portar com desenho Web/VM condicional. Deve aceitar browser fetch/XHR e VM file read sem quebrar compilação Web. | Média. |
+| `modules/filters.js` | `processDataByFilters`, ASCII85/ASCIIHex/Flate | ✅ Portado em `modules/filters.dart`. ASCII85Encode/Decode, ASCIIHexEncode/Decode, FlateEncode/Decode, pipeline `processDataByFilters`. | |
+| `modules/svg.js` | `addSvgAsImage` | 🔜 Falta portar. Original usa `canvg`; no Dart precisa parser/render SVG local ou conversão própria para imagem, sem dependência externa runtime. | Média/alta se o editor usar imagens/LaTeX/SVG. |
+| `modules/xmp_metadata.js` | `addMetadata` | ✅ Portado em `modules/xmp_metadata.dart`. XMP XML packet embutido em `/Metadata` no catálogo PDF. | |
+| `modules/canvas.js` | `doc.canvas`, `canvas.getContext('2d')` | ✅ Portado em `modules/canvas.dart`. `PdfCanvas` com `width`, `height`, `style`, `childNodes`, `getContext('2d')` e `toDataURL` (lança UnsupportedError). | |
+
+#### Módulos originais cobertos em outro desenho Dart
+
+| Original JS | Situação no porte Dart |
+|---|---|
+| `modules/vfs.js` | ✅ Coberto em `JsPdf`: `addFileToVFS`, `getFileFromVFS`, `existsFileInVFS`. |
+| `modules/ttfsupport.js` | ✅ Coberto por `JsPdf.addFont`, `lib/src/libs/ttffont.dart` e `lib/src/modules/utf8.dart`. |
+| `modules/javascript.js` | ✅ Coberto em `lib/src/modules/autoprint.dart` por `addJS`, usado também por `autoPrint`. |
+| `modules/png_support.js`, `jpeg_support.js`, `addimage.js` | ✅ PNG/JPEG e `/XObject` já portados; ainda faltam os formatos auxiliares BMP/GIF/WebP/RGBA. |
+
+#### Libs auxiliares originais ainda pendentes ou substituídas
+
+| Lib JS | Status / ação |
+|---|---|
+| `libs/bidiEngine.js` | 🔜 Falta portar para BiDi real. Necessário para árabe/hebraico e para completar `arabic.js` + `utf8`. |
+| `libs/BMPDecoder.js` | ✅ Portado em `lib/src/libs/bmp_decoder.dart`. |
+| `libs/omggif.js` | 🔜 Falta portar para `gif_support`. |
+| `libs/WebPDecoder.js` | 🔜 Falta portar para `webp_support`. |
+| `libs/JPEGEncoder.js` | 🔜 Falta portar se for necessário converter canvas/RGBA/BMP/GIF/WebP para JPEG. |
+| `libs/fontFace.js` | 🔜 Necessário apenas se o renderer HTML passar a entender CSS `@font-face`. |
+| `libs/AtobBtoa.js` | ✅ Não precisa porte literal; `dart:convert` cobre base64. |
+| `libs/Blob.js`, `FileSaver.js`, `globalObject.js` | ✅ Não portar literalmente; manter camada `platform/` com exports condicionais Web/VM. |
+| `libs/md5.js`, `rc4.js`, `pdfsecurity.js` | ✅ Substituídos por `lib/src/pdf_security.dart`. |
+| `libs/pdfname.js` | ✅ Substituído por `lib/src/pdfname.dart`. |
+| `libs/ttffont.js` | ✅ Substituído por `lib/src/libs/ttffont.dart`, com melhorias adicionais de bounds, `cmap` 12, nomes UTF-16 e subset. |
+| `libs/fast-png.js`, `libs/fflate.js` | ✅ Substituídos por `fast_png.dart` e zlib local/condicional. |
+
+#### HTML e `html2canvas`
+
+O `modules/html.js` original (~1093 linhas) carrega `html2canvas` e `DOMPurify`, clona DOM, calcula layout, renderiza para canvas e injeta a imagem no PDF. O porte Dart atual é propositalmente textual e não depende de DOM/CSS completo.
+
+Escopo medido de `referencias/html2canvas-master/src`: **128 arquivos TypeScript** e cerca de **10101 linhas**. Portar isso inteiro é um projeto próprio, não um ajuste pequeno.
+
+O que ainda falta para aproximar o HTML original:
+
+- Clonagem de DOM e preservação de estado de canvas, textarea, select, scroll e estilos.
+- Parser de CSS/computed styles: cores, backgrounds, bordas, fontes, transformações, shadows, overflow, display, posicionamento e stacking context.
+- Layout real de blocos, inline text, tabelas, imagens substituídas, canvas e SVG.
+- Renderer para `Context2D`/canvas local, com escala, background, clipping e efeitos.
+- Sanitização equivalente ao fluxo com `DOMPurify`, sem dependência externa runtime.
+- Estratégia Web/VM: DOM real só na Web; na VM deve haver fallback textual/erro claro.
+
+#### Context2D ainda parcial contra o original
+
+O `modules/context2d.js` original tem ~2691 linhas. O porte Dart já cobre paths, texto básico, estilos, transformações, imagens PNG/JPEG, crop e métricas, mas ainda faltam:
+
+- Gradients reais (`createLinearGradient`, `createRadialGradient`) e color stops.
+- Patterns reais (`createPattern`).
+- Page wrapping do plugin original (`pageWrapX`, `pageWrapY` e variantes).
+- Fidelidade completa de `textBaseline`, `textAlign`, clipping e composite operations.
+- Política completa para `clearRect`.
+- Testes visuais/estruturais com cenas reais do editor.
+
+#### Ordem recomendada para continuar
+
+1. ~~**`xmp_metadata`**~~ ✅ Portado.
+2. ~~**`filters`**~~ ✅ Portado.
+3. ~~**`rgba_support`**~~ ✅ Portado.
+4. ~~**`bmp_support` + `BMPDecoder`**~~ ✅ Portados.
+5. ~~**`canvas` wrapper**~~ ✅ Portado.
+6. **`gif_support` + `omggif`** e **`webp_support` + `WebPDecoder`**: formatos extras de imagem.
+7. **`arabic` + `bidiEngine`**: texto RTL profissional.
+8. **`acroform`**: grande bloco para formulários PDF reais.
+9. **`svg`**: definir parser/render local antes de implementar, pois o original usa `canvg`.
+10. **HTML real / html2canvas subset**: tratar como projeto próprio por causa do tamanho e complexidade.
 
 ---
 
