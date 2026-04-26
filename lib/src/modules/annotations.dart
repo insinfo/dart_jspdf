@@ -109,8 +109,23 @@ extension JsPdfAnnotations on JsPdf {
       },
     );
 
-    _getAnnotations().add(annotation);
+    _getAnnotations().add(<String, dynamic>{
+      'type': 'link',
+      'pdf': _annotationToPdf(annotation),
+    });
     return this;
+  }
+
+  /// Escreve texto e cria uma área clicável com o mesmo tamanho aproximado.
+  JsPdf textWithLink(
+    String text,
+    double x,
+    double y,
+    LinkOptions options,
+  ) {
+    this.text(text, x, y);
+    return link(
+        x, y - getFontSize(), getTextWidth(text), getFontSize(), options);
   }
 
   /// Retorna a largura do texto na unidade atual.
@@ -131,17 +146,42 @@ extension JsPdfAnnotations on JsPdf {
     return f2(value);
   }
 
+  String _annotationToPdf(PdfAnnotation annotation) {
+    final bounds = annotation.finalBounds!;
+    final options = annotation.options;
+    final buffer = StringBuffer()
+      ..write('<<')
+      ..write('/Type /Annot ')
+      ..write('/Subtype /Link ')
+      ..write(
+          '/Rect [${bounds['x']} ${bounds['y']} ${bounds['w']} ${bounds['h']}] ')
+      ..write('/Border [0 0 0] ');
+
+    if (options?.url != null) {
+      buffer
+        ..write('/A <<')
+        ..write('/S /URI ')
+        ..write('/URI (${pdfEscape(options!.url!)})')
+        ..write('>>');
+    } else if (options?.pageNumber != null) {
+      final destinationPage = options!.pageNumber!.clamp(1, getNumberOfPages());
+      final left = options.left == null
+          ? 'null'
+          : _coordStr(options.left! * scaleFactor);
+      final top = options.top == null
+          ? 'null'
+          : _coordStr(
+              (getPageHeight(destinationPage) - options.top!) * scaleFactor);
+      buffer.write(
+          '/Dest [$destinationPage 0 R /${options.magFactor} $left $top ${f2(options.zoom)}]');
+    }
+
+    buffer.write('>>');
+    return buffer.toString();
+  }
+
   /// Acesso às anotações da página atual (armazenadas internamente).
-  List<PdfAnnotation> _getAnnotations() {
-    // Usa uma lista estática por enquanto; em produção seria por página
-    _annotationsMap.putIfAbsent(
-      internal.currentPage,
-      () => <PdfAnnotation>[],
-    );
-    return _annotationsMap[internal.currentPage]!;
+  List<Map<String, dynamic>> _getAnnotations() {
+    return internal.pagesContext[internal.currentPage]!.annotations;
   }
 }
-
-/// Mapa global de anotações por página.
-/// Em uma implementação mais robusta, seria integrado ao PageContext.
-final Map<int, List<PdfAnnotation>> _annotationsMap = {};

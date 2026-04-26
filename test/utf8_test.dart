@@ -110,7 +110,12 @@ void main() {
     });
 
     test('convert nested array', () {
-      expect(PDFObject.convert([1, [2, 3]]), equals('[1 [2 3]]'));
+      expect(
+          PDFObject.convert([
+            1,
+            [2, 3]
+          ]),
+          equals('[1 [2 3]]'));
     });
 
     test('convert DateTime', () {
@@ -144,6 +149,12 @@ void main() {
       final cmap = toUnicodeCmap({});
       expect(cmap, contains('endcmap'));
       expect(cmap, isNot(contains('beginbfchar')));
+    });
+
+    test('codifica codepoints fora do BMP como surrogate pair UTF-16BE', () {
+      final cmap = toUnicodeCmap({1: 0x1f600});
+
+      expect(cmap, contains('<0001><d83dde00>'));
     });
   });
 

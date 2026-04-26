@@ -1,7 +1,5 @@
 import 'package:test/test.dart';
-import 'package:jspdf/src/modules/outline.dart';
-import 'package:jspdf/src/modules/viewerpreferences.dart';
-import 'package:jspdf/src/modules/cell.dart';
+import 'package:jspdf/jspdf.dart';
 
 void main() {
   group('PdfOutline', () {
@@ -159,29 +157,64 @@ void main() {
     });
 
     test('define PrintPageRange como array', () {
-      prefs.set({'PrintPageRange': [[1, 5], [7, 9]]});
+      prefs.set({
+        'PrintPageRange': [
+          [1, 5],
+          [7, 9]
+        ]
+      });
       final dict = prefs.toPdfDict()!;
       expect(dict, contains('/PrintPageRange'));
       expect(dict, contains('[0 4 6 8]'));
     });
   });
 
+  group('setLanguage', () {
+    test('valida códigos portados da referência', () {
+      expect(isValidPdfLanguageCode('en-US'), isTrue);
+      expect(isValidPdfLanguageCode('pt-BR'), isTrue);
+      expect(isValidPdfLanguageCode('zz-ZZ'), isFalse);
+    });
+
+    test('emite Lang no catálogo para código válido', () {
+      final pdf = JsPdf()
+        ..setLanguage('pt-BR')
+        ..text('Olá', 10, 10);
+
+      expect(pdf.output(), contains('/Lang (pt-BR)'));
+    });
+
+    test('ignora código inválido como no plugin JS', () {
+      final pdf = JsPdf()
+        ..setLanguage('zz-ZZ')
+        ..text('Hello', 10, 10);
+
+      expect(pdf.output(), isNot(contains('/Lang')));
+    });
+  });
+
   group('cellToPdf', () {
     test('gera operadores para célula com borda', () {
       final ops = cellToPdf(
-        x: 10, y: 100, width: 80, height: 20,
+        x: 10,
+        y: 100,
+        width: 80,
+        height: 20,
         text: 'Hello',
         drawBorder: true,
       );
       expect(ops.any((s) => s.contains('re S')), isTrue); // Retângulo de borda
-      expect(ops.any((s) => s.contains('BT')), isTrue);  // Begin Text
+      expect(ops.any((s) => s.contains('BT')), isTrue); // Begin Text
       expect(ops.any((s) => s.contains('Hello')), isTrue);
-      expect(ops.any((s) => s.contains('ET')), isTrue);  // End Text
+      expect(ops.any((s) => s.contains('ET')), isTrue); // End Text
     });
 
     test('gera operadores sem borda', () {
       final ops = cellToPdf(
-        x: 10, y: 100, width: 80, height: 20,
+        x: 10,
+        y: 100,
+        width: 80,
+        height: 20,
         text: 'No border',
         drawBorder: false,
       );
@@ -191,7 +224,10 @@ void main() {
 
     test('texto alinhado ao centro', () {
       final ops = cellToPdf(
-        x: 10, y: 100, width: 200, height: 20,
+        x: 10,
+        y: 100,
+        width: 200,
+        height: 20,
         text: 'Hi',
         align: CellAlign.center,
       );
@@ -200,7 +236,10 @@ void main() {
 
     test('texto alinhado à direita', () {
       final ops = cellToPdf(
-        x: 10, y: 100, width: 200, height: 20,
+        x: 10,
+        y: 100,
+        width: 200,
+        height: 20,
         text: 'Hi',
         align: CellAlign.right,
       );
@@ -230,7 +269,9 @@ void main() {
       final row = {'a': 'Short', 'b': 'A' * 100}; // b é muito mais longo
       final height = calculateRowHeight(cols, row, 10);
       final shortHeight = calculateLineHeight(
-        'Short', 50 - 6, 10,
+        'Short',
+        50 - 6,
+        10,
       );
       expect(height, greaterThanOrEqualTo(shortHeight));
     });

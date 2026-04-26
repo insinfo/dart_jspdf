@@ -1,3 +1,5 @@
+import 'pdf_security.dart';
+import 'libs/zlib_codec.dart';
 import 'utils.dart';
 
 /// Construtor de objetos e estrutura interna do documento PDF.
@@ -23,8 +25,7 @@ class MediaBox {
         topRightX = width,
         topRightY = height;
 
-  MediaBox clone() =>
-      MediaBox(bottomLeftX, bottomLeftY, topRightX, topRightY);
+  MediaBox clone() => MediaBox(bottomLeftX, bottomLeftY, topRightX, topRightY);
 }
 
 /// Contexto de uma página no documento PDF.
@@ -76,13 +77,16 @@ class PdfDocumentBuilder {
 
   final String Function(num) _hpf;
   final String _pdfVersion;
+  final bool _compress;
 
   PdfDocumentBuilder({
     String pdfVersion = '1.3',
     String Function(num)? hpf,
-  }) : _pdfVersion = pdfVersion,
-       _hpf = hpf ?? createHpf(16),
-       _outputDestination = [] {
+    bool compress = false,
+  })  : _pdfVersion = pdfVersion,
+        _hpf = hpf ?? createHpf(16),
+        _compress = compress,
+        _outputDestination = [] {
     _outputDestination = _content;
     _rootDictionaryObjId = newObjectDeferred();
     _resourceDictionaryObjId = newObjectDeferred();
@@ -198,14 +202,24 @@ class PdfDocumentBuilder {
       ...?additionalKeyValues,
     ];
 
-    // Processa dados (compressão ficaria aqui se implementássemos FlateEncode)
     var processedData = data;
     final reverseChain = <String>[];
+
+    if (_compress &&
+        processedData.isNotEmpty &&
+        alreadyAppliedFilters?.contains('FlateDecode') != true) {
+      final compressed = ZLibCodec().encode(
+        processedData.codeUnits.map((int codeUnit) => codeUnit & 0xff).toList(),
+      );
+      processedData = String.fromCharCodes(compressed);
+      reverseChain.add('FlateDecode');
+    }
 
     final valueOfLength1 = data.length;
 
     if (processedData.isNotEmpty) {
-      keyValues.add({'key': 'Length', 'value': processedData.length.toString()});
+      keyValues
+          .add({'key': 'Length', 'value': processedData.length.toString()});
       if (addLength1) {
         keyValues.add({'key': 'Length1', 'value': valueOfLength1.toString()});
       }
@@ -242,7 +256,7 @@ class PdfDocumentBuilder {
   // --- Build Document ---
 
   /// Emite uma única página no documento.
-  int putPage(int pageNumber) {
+  int putPage(int pageNumber, {PdfSecurity? security}) {
     final ctx = _pagesContext[pageNumber]!;
     final data = _pages[pageNumber];
 
@@ -294,6 +308,13 @@ class PdfDocumentBuilder {
       out('/UserUnit ${ctx.userUnit}');
     }
 
+    if (ctx.annotations.isNotEmpty) {
+      final annotationObjects = ctx.annotations
+          .map((Map<String, dynamic> annotation) => annotation['pdf'] as String)
+          .join(' ');
+      out('/Annots [$annotationObjects]');
+    }
+
     out('/Contents ${ctx.contentsObjId} 0 R');
     out('>>');
     out('endobj');
@@ -302,14 +323,18 @@ class PdfDocumentBuilder {
     final pageContent = data.join('\n');
 
     newObjectDeferredBegin(ctx.contentsObjId, doOutput: true);
-    putStream(data: pageContent, objectId: ctx.contentsObjId);
+    putStream(
+      data: pageContent,
+      objectId: ctx.contentsObjId,
+      encryptor: security?.encryptor(ctx.contentsObjId, 0),
+    );
     out('endobj');
 
     return ctx.objId;
   }
 
   /// Emite todas as páginas.
-  List<int> putPages() {
+  List<int> putPages({PdfSecurity? security}) {
     final pageObjectNumbers = <int>[];
 
     // Reserva IDs
@@ -320,7 +345,7 @@ class PdfDocumentBuilder {
 
     // Emite cada página
     for (var n = 1; n <= numberOfPages; n++) {
-      pageObjectNumbers.add(putPage(n));
+      pageObjectNumbers.add(putPage(n, security: security));
     }
 
     // Emite dicionário de páginas raiz
@@ -352,20 +377,25 @@ class PdfDocumentBuilder {
   }
 
   /// Emite o Info dictionary.
+  void putEncryption(PdfSecurity security) {
+    newObject();
+    out(security.encryptionDictionary(objectNumber));
+    out('endobj');
+  }
+
   void putInfo({
     Map<String, String>? documentProperties,
     required String creationDate,
-    String Function(String)? encryptor,
+    PdfSecurity? security,
   }) {
-    final enc = encryptor ?? (String d) => d;
-    newObject();
+    final int infoObjectId = newObject();
+    final enc = security?.encryptor(infoObjectId, 0) ?? (String d) => d;
     out('<<');
     out('/Producer (${pdfEscape(enc("jsPDF Dart Port 1.0.0"))})');
     if (documentProperties != null) {
       for (final entry in documentProperties.entries) {
         if (entry.value.isNotEmpty) {
-          final key =
-              entry.key[0].toUpperCase() + entry.key.substring(1);
+          final key = entry.key[0].toUpperCase() + entry.key.substring(1);
           out('/$key (${pdfEscape(enc(entry.value))})');
         }
       }
@@ -380,6 +410,7 @@ class PdfDocumentBuilder {
     String? zoomMode,
     String? layoutMode,
     String? pageMode,
+    String? languageCode,
   }) {
     newObject();
     out('<<');
@@ -435,6 +466,10 @@ class PdfDocumentBuilder {
     // Page mode
     if (pageMode != null) {
       out('/PageMode /$pageMode');
+    }
+
+    if (languageCode != null) {
+      out('/Lang (${pdfEscape(languageCode)})');
     }
 
     out('>>');
@@ -497,27 +532,36 @@ class PdfDocumentBuilder {
     String? zoomMode,
     String? layoutMode,
     String? pageMode,
+    String? languageCode,
     void Function()? putResourcesCallback,
-    int? encryptionOid,
+    PdfSecurity? security,
   }) {
     resetDocument();
     setOutputDestination(_content);
 
     putHeader();
-    putPages();
+    putPages(security: security);
     putAdditionalObjects();
 
     // Recursos (fontes, images, etc.) — delegado via callback
     putResourcesCallback?.call();
 
+    int? encryptionOid;
+    if (security != null) {
+      putEncryption(security);
+      encryptionOid = objectNumber;
+    }
+
     putInfo(
       documentProperties: documentProperties,
       creationDate: creationDate,
+      security: security,
     );
     putCatalog(
       zoomMode: zoomMode,
       layoutMode: layoutMode,
       pageMode: pageMode,
+      languageCode: languageCode,
     );
 
     final offsetOfXRef = _contentLength;

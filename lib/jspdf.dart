@@ -27,6 +27,7 @@ export 'src/rgb_color.dart';
 export 'src/utils.dart';
 export 'src/pubsub.dart';
 export 'src/pdf_document.dart';
+export 'src/pdf_security.dart';
 
 // Modules
 export 'src/modules/total_pages.dart';
@@ -43,7 +44,10 @@ export 'src/modules/utf8.dart';
 export 'src/modules/png_support.dart';
 export 'src/modules/context2d.dart';
 export 'src/modules/html.dart';
+export 'src/modules/setlanguage.dart';
 
 // Libs
 export 'src/pdfname.dart';
 export 'src/libs/ttffont.dart';
+export 'src/libs/fast_png.dart';
+export 'src/libs/zlib_codec.dart';

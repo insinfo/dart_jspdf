@@ -8,12 +8,18 @@
 
 import 'dart:typed_data';
 
+import '../libs/fast_png.dart';
+import '../libs/zlib_codec.dart';
+import 'addimage.dart';
+
 // ============================================================================
 // PNG Filter Methods (conforming to PNG spec)
 // ============================================================================
 
 /// Filtro None: sem filtro, apenas prefixo 0.
-List<int> filterNone(Uint8List line, int bytesPerPixel, [Uint8List? prevLine]) => [0, ...line];
+List<int> filterNone(Uint8List line, int bytesPerPixel,
+        [Uint8List? prevLine]) =>
+    [0, ...line];
 
 /// Filtro Sub: diferença com pixel à esquerda.
 List<int> filterSub(Uint8List line, int bytesPerPixel, [Uint8List? prevLine]) {
@@ -40,7 +46,8 @@ List<int> filterUp(Uint8List line, int bytesPerPixel, [Uint8List? prevLine]) {
 }
 
 /// Filtro Average: média de esquerda e acima.
-List<int> filterAverage(Uint8List line, int bytesPerPixel, [Uint8List? prevLine]) {
+List<int> filterAverage(Uint8List line, int bytesPerPixel,
+    [Uint8List? prevLine]) {
   final len = line.length;
   final result = List<int>.filled(len + 1, 0);
   result[0] = 3;
@@ -64,14 +71,17 @@ int paethPredictor(int left, int up, int upLeft) {
 }
 
 /// Filtro Paeth.
-List<int> filterPaeth(Uint8List line, int bytesPerPixel, [Uint8List? prevLine]) {
+List<int> filterPaeth(Uint8List line, int bytesPerPixel,
+    [Uint8List? prevLine]) {
   final len = line.length;
   final result = List<int>.filled(len + 1, 0);
   result[0] = 4;
   for (var i = 0; i < len; i++) {
     final left = i >= bytesPerPixel ? line[i - bytesPerPixel] : 0;
     final up = prevLine != null && i < prevLine.length ? prevLine[i] : 0;
-    final upLeft = (prevLine != null && i >= bytesPerPixel && i - bytesPerPixel < prevLine.length)
+    final upLeft = (prevLine != null &&
+            i >= bytesPerPixel &&
+            i - bytesPerPixel < prevLine.length)
         ? prevLine[i - bytesPerPixel]
         : 0;
     final paeth = paethPredictor(left, up, upLeft);
@@ -81,21 +91,23 @@ List<int> filterPaeth(Uint8List line, int bytesPerPixel, [Uint8List? prevLine]) 
 }
 
 /// Tipo de filtro para seleção.
-typedef PngFilterFn = List<int> Function(Uint8List line, int bytesPerPixel, [Uint8List? prevLine]);
+typedef PngFilterFn = List<int> Function(Uint8List line, int bytesPerPixel,
+    [Uint8List? prevLine]);
 
 /// Retorna todos os métodos de filtro.
-List<PngFilterFn> getFilterMethods() => [filterNone, filterSub, filterUp, filterAverage, filterPaeth];
+List<PngFilterFn> getFilterMethods() =>
+    [filterNone, filterSub, filterUp, filterAverage, filterPaeth];
 
 /// Índice do array com menor soma absoluta.
 int getIndexOfSmallestSum(List<List<int>> arrays) {
-  var minSum = 0x7FFFFFFFFFFFFFFF;
-  var minIndex = 0;
+  int? minSum;
+  int minIndex = 0;
   for (var i = 0; i < arrays.length; i++) {
-    var sum = 0;
+    int sum = 0;
     for (final v in arrays[i]) {
       sum += v.abs();
     }
-    if (sum < minSum) {
+    if (minSum == null || sum < minSum) {
       minSum = sum;
       minIndex = i;
     }
@@ -124,13 +136,16 @@ Uint8List applyPngFilterMethod(
       filtered = filterMethod(line, bytesPerPixel, prevLine);
     } else {
       // Optimal: testa todos os filtros e escolhe o menor
-      final results = filterMethods.map((f) => f(line, bytesPerPixel, prevLine)).toList();
+      final results =
+          filterMethods.map((f) => f(line, bytesPerPixel, prevLine)).toList();
       final ind = getIndexOfSmallestSum(results);
       filtered = results[ind];
     }
 
     final destOffset = offset + i;
-    for (var j = 0; j < filtered.length && destOffset + j < result.length; j++) {
+    for (var j = 0;
+        j < filtered.length && destOffset + j < result.length;
+        j++) {
       result[destOffset + j] = filtered[j];
     }
     prevLine = line;
@@ -160,6 +175,51 @@ int getPredictorFromCompression(PngCompression compression) {
   }
 }
 
+/// Retorna true quando os bytes serão compactados com Flate/ZLib.
+bool canCompressPng(PngCompression compression) =>
+    compression != PngCompression.none;
+
+/// Compacta bytes de imagem com filtro PNG e ZLib para uso com `/FlateDecode`.
+Uint8List compressPngBytes(
+  Uint8List bytes,
+  int lineByteLength,
+  int channels,
+  int bitsPerComponent,
+  PngCompression compression,
+) {
+  int level = 4;
+  PngFilterFn filterMethod = filterUp;
+
+  switch (compression) {
+    case PngCompression.fast:
+      level = 1;
+      filterMethod = filterSub;
+      break;
+    case PngCompression.medium:
+      level = 6;
+      filterMethod = filterAverage;
+      break;
+    case PngCompression.slow:
+      level = 9;
+      filterMethod = filterPaeth;
+      break;
+    case PngCompression.none:
+      level = 4;
+      filterMethod = filterUp;
+      break;
+  }
+
+  final int bytesPerPixel =
+      ((channels * bitsPerComponent) / 8).ceil().clamp(1, 0x7fffffff);
+  final Uint8List filteredBytes = applyPngFilterMethod(
+    bytes,
+    lineByteLength,
+    bytesPerPixel,
+    filterMethod,
+  );
+  return Uint8List.fromList(ZLibCodec(level: level).encode(filteredBytes));
+}
+
 // ============================================================================
 // Bit-level read/write for PNG data
 // ============================================================================
@@ -181,7 +241,8 @@ void writeSample(ByteData view, int value, int sampleIndex, int depth) {
   final bitOffset = 16 - (bitIndex - byteIndex * 8 + depth);
   final bitMask = (1 << depth) - 1;
   final writeValue = (value & bitMask) << bitOffset;
-  final word = _safeGetUint16(view, byteIndex) & ~(bitMask << bitOffset) & 0xFFFF;
+  final word =
+      _safeGetUint16(view, byteIndex) & ~(bitMask << bitOffset) & 0xFFFF;
   _safeSetUint16(view, byteIndex, word | writeValue);
 }
 
@@ -204,27 +265,9 @@ void _safeSetUint16(ByteData view, int byteIndex, int value) {
 // PNG Processing
 // ============================================================================
 
-/// Dados PNG decodificados (input).
-class DecodedPng {
-  final int width;
-  final int height;
-  final int channels;
-  final int depth;
-  final Uint8List data;
-  final List<List<int>>? palette;
-
-  const DecodedPng({
-    required this.width,
-    required this.height,
-    required this.channels,
-    required this.depth,
-    required this.data,
-    this.palette,
-  });
-}
-
 /// Resultado do processamento PNG.
 class PngProcessResult {
+  final Uint8List data;
   final String colorSpace;
   final int colorsPerPixel;
   final int? sMaskBitsPerComponent;
@@ -239,10 +282,12 @@ class PngProcessResult {
   final String? filter;
   final String? decodeParameters;
   final String? alias;
+  final int index;
   final int? predictor;
-  final String? sMask;
+  final Uint8List? sMask;
 
   const PngProcessResult({
+    Uint8List? data,
     required this.colorSpace,
     required this.colorsPerPixel,
     this.sMaskBitsPerComponent,
@@ -257,9 +302,10 @@ class PngProcessResult {
     this.filter,
     this.decodeParameters,
     this.alias,
+    this.index = 0,
     this.predictor,
     this.sMask,
-  });
+  }) : data = data ?? colorBytes;
 }
 
 /// Processa PNG indexado (com paleta).
@@ -297,7 +343,8 @@ PngProcessResult processIndexedPNG(DecodedPng png) {
     final dataView = ByteData.sublistView(png.data);
     for (var p = 0; p < totalPixels; p++) {
       final paletteIndex = readSample(dataView, p, png.depth);
-      if (paletteIndex < paletteData.length && paletteData[paletteIndex].length > 3) {
+      if (paletteIndex < paletteData.length &&
+          paletteData[paletteIndex].length > 3) {
         alphaBytes[p] = paletteData[paletteIndex][3];
       } else {
         alphaBytes[p] = 255;
@@ -371,12 +418,21 @@ PngProcessResult processAlphaPNG(DecodedPng png) {
 PngProcessResult processOpaquePNG(DecodedPng png) {
   final colorSpace = png.channels == 1 ? 'DeviceGray' : 'DeviceRGB';
   final colorsPerPixel = colorSpace == 'DeviceGray' ? 1 : 3;
+  List<int>? mask;
+  if (png.transparentColor != null) {
+    mask = <int>[];
+    for (final int value in png.transparentColor!) {
+      mask.add(value);
+      mask.add(value);
+    }
+  }
 
   return PngProcessResult(
     colorSpace: colorSpace,
     colorsPerPixel: colorsPerPixel,
     colorBytes: png.data,
     needSMask: false,
+    mask: mask,
     width: png.width,
     height: png.height,
     bitsPerComponent: png.depth,
@@ -385,9 +441,15 @@ PngProcessResult processOpaquePNG(DecodedPng png) {
 
 /// Processa um PNG decodificado para embedding no PDF.
 ///
-/// [png] é o PNG já decodificado (via fast-png ou similar).
-/// [compression] define se os dados serão comprimidos com zlib.
-PngProcessResult processPNG(DecodedPng png, {PngCompression compression = PngCompression.none}) {
+/// [pngData] pode ser bytes PNG brutos, binary string ou um [DecodedPng].
+/// [compression] define se os dados serão comprimidos com zlib/Flate.
+PngProcessResult processPNG(
+  dynamic pngData, {
+  int index = 0,
+  String? alias,
+  PngCompression compression = PngCompression.none,
+}) {
+  final DecodedPng png = _resolvePngInput(pngData);
   PngProcessResult result;
 
   if (png.palette != null && png.channels == 1) {
@@ -398,5 +460,89 @@ PngProcessResult processPNG(DecodedPng png, {PngCompression compression = PngCom
     result = processOpaquePNG(png);
   }
 
-  return result;
+  if (!canCompressPng(compression)) {
+    return PngProcessResult(
+      data: result.colorBytes,
+      colorSpace: result.colorSpace,
+      colorsPerPixel: result.colorsPerPixel,
+      sMaskBitsPerComponent: result.sMaskBitsPerComponent,
+      colorBytes: result.colorBytes,
+      alphaBytes: result.alphaBytes,
+      needSMask: result.needSMask,
+      palette: result.palette,
+      mask: result.mask,
+      width: result.width,
+      height: result.height,
+      bitsPerComponent: result.bitsPerComponent,
+      alias: alias,
+      index: index,
+      sMask: result.needSMask ? result.alphaBytes : null,
+    );
+  }
+
+  final int predictor = getPredictorFromCompression(compression);
+  final int rowByteLength =
+      ((png.width * result.colorsPerPixel * result.bitsPerComponent) / 8)
+          .ceil();
+  final Uint8List colorBytes = compressPngBytes(
+    result.colorBytes,
+    rowByteLength,
+    result.colorsPerPixel,
+    result.bitsPerComponent,
+    compression,
+  );
+
+  Uint8List? alphaBytes;
+  if (result.needSMask && result.alphaBytes != null) {
+    final int sMaskBitsPerComponent =
+        result.sMaskBitsPerComponent ?? result.bitsPerComponent;
+    final int sMaskRowByteLength =
+        ((png.width * sMaskBitsPerComponent) / 8).ceil();
+    alphaBytes = compressPngBytes(
+      result.alphaBytes!,
+      sMaskRowByteLength,
+      1,
+      sMaskBitsPerComponent,
+      compression,
+    );
+  }
+
+  return PngProcessResult(
+    data: colorBytes,
+    colorSpace: result.colorSpace,
+    colorsPerPixel: result.colorsPerPixel,
+    sMaskBitsPerComponent: result.sMaskBitsPerComponent,
+    colorBytes: colorBytes,
+    alphaBytes: alphaBytes,
+    needSMask: result.needSMask,
+    palette: result.palette,
+    mask: result.mask,
+    width: result.width,
+    height: result.height,
+    bitsPerComponent: result.bitsPerComponent,
+    filter: DecodeMethod.flateDecode,
+    decodeParameters:
+        '/Predictor $predictor /Colors ${result.colorsPerPixel} /BitsPerComponent ${result.bitsPerComponent} /Columns ${png.width}',
+    alias: alias,
+    index: index,
+    predictor: predictor,
+    sMask: alphaBytes,
+  );
+}
+
+DecodedPng _resolvePngInput(dynamic pngData) {
+  if (pngData is DecodedPng) {
+    return pngData;
+  }
+  if (pngData is Uint8List) {
+    return decodePng(pngData);
+  }
+  if (pngData is ByteBuffer) {
+    return decodePng(Uint8List.view(pngData));
+  }
+  if (pngData is String) {
+    return decodePng(binaryStringToUint8Array(pngData));
+  }
+  throw ArgumentError.value(pngData, 'pngData',
+      'Expected Uint8List, ByteBuffer, binary String, or DecodedPng.');
 }

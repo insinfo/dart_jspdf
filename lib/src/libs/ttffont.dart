@@ -21,7 +21,13 @@ class TtfData {
 
   int get length => data.length;
 
-  int readByte() => data[pos++];
+  int readByte() {
+    if (pos < 0 || pos >= data.length) {
+      throw RangeError.range(
+          pos, 0, data.length - 1, 'pos', 'Unexpected end of TTF data');
+    }
+    return data[pos++];
+  }
 
   void writeByte(int byte) {
     if (pos < data.length) {
@@ -143,6 +149,14 @@ class TtfData {
   }
 
   List<int> read(int bytes) {
+    if (bytes < 0) {
+      throw ArgumentError.value(
+          bytes, 'bytes', 'Read length must not be negative.');
+    }
+    if (pos + bytes > data.length) {
+      throw RangeError.range(
+          pos + bytes, 0, data.length, 'pos', 'Unexpected end of TTF data');
+    }
     final buf = <int>[];
     for (var i = 0; i < bytes; i++) {
       buf.add(readByte());
@@ -179,6 +193,10 @@ class TtfDirectory {
 
   TtfDirectory(TtfData data) {
     scalarType = data.readInt();
+    if (scalarType != 0x00010000 && scalarType != 0x74727565) {
+      throw FormatException(
+          'Unsupported sfnt scalar type: 0x${scalarType.toRadixString(16)}.');
+    }
     tableCount = data.readShort();
     searchRange = data.readShort();
     entrySelector = data.readShort();
@@ -190,6 +208,11 @@ class TtfDirectory {
         data.readInt(),
         data.readInt(),
       );
+      if (entry.offset < 0 ||
+          entry.length < 0 ||
+          entry.offset + entry.length > data.length) {
+        throw FormatException('Invalid TTF table bounds for ${entry.tag}.');
+      }
       tables[entry.tag] = entry;
     }
   }
@@ -362,10 +385,17 @@ class _CmapEntry {
     final saveOffset = data.pos;
     data.pos = offset;
     format = data.readUInt16();
-    entryLength = data.readUInt16();
-    language = data.readUInt16();
+    if (format == 12) {
+      data.readUInt16(); // reserved
+      entryLength = data.readUInt32();
+      language = data.readUInt32();
+    } else {
+      entryLength = data.readUInt16();
+      language = data.readUInt16();
+    }
     isUnicode = (platformID == 3 && encodingID == 1 && format == 4) ||
-        (platformID == 0 && format == 4);
+        (platformID == 3 && encodingID == 10 && format == 12) ||
+        (platformID == 0 && (format == 4 || format == 12));
 
     switch (format) {
       case 0:
@@ -379,9 +409,13 @@ class _CmapEntry {
         data.pos += 6;
         final endCode = [for (var i = 0; i < segCount; i++) data.readUInt16()];
         data.pos += 2;
-        final startCode = [for (var i = 0; i < segCount; i++) data.readUInt16()];
+        final startCode = [
+          for (var i = 0; i < segCount; i++) data.readUInt16()
+        ];
         final idDelta = [for (var i = 0; i < segCount; i++) data.readUInt16()];
-        final idRangeOffset = [for (var i = 0; i < segCount; i++) data.readUInt16()];
+        final idRangeOffset = [
+          for (var i = 0; i < segCount; i++) data.readUInt16()
+        ];
         final count = (entryLength - data.pos + offset) ~/ 2;
         final glyphIds = [for (var i = 0; i < count; i++) data.readUInt16()];
 
@@ -393,11 +427,31 @@ class _CmapEntry {
             if (idRangeOffset[i] == 0) {
               glyphId = code + idDelta[i];
             } else {
-              final index = idRangeOffset[i] ~/ 2 + (code - start) - (segCount - i);
-              glyphId = (index >= 0 && index < glyphIds.length) ? glyphIds[index] : 0;
+              final index =
+                  idRangeOffset[i] ~/ 2 + (code - start) - (segCount - i);
+              glyphId =
+                  (index >= 0 && index < glyphIds.length) ? glyphIds[index] : 0;
               if (glyphId != 0) glyphId += idDelta[i];
             }
             codeMap[code] = glyphId & 0xFFFF;
+          }
+        }
+        break;
+      case 6:
+        final firstCode = data.readUInt16();
+        final entryCount = data.readUInt16();
+        for (var i = 0; i < entryCount; i++) {
+          codeMap[firstCode + i] = data.readUInt16();
+        }
+        break;
+      case 12:
+        final groupCount = data.readUInt32();
+        for (var i = 0; i < groupCount; i++) {
+          final startCharCode = data.readUInt32();
+          final endCharCode = data.readUInt32();
+          final startGlyphId = data.readUInt32();
+          for (var code = startCharCode; code <= endCharCode; code++) {
+            codeMap[code] = startGlyphId + (code - startCharCode);
           }
         }
         break;
@@ -507,8 +561,23 @@ class _CmapTable extends _TtfTable {
     for (var i = 0; i < tableCount; i++) {
       final entry = _CmapEntry(data, offset);
       tables.add(entry);
-      if (entry.isUnicode) unicode ??= entry;
+      if (entry.isUnicode &&
+          (unicode == null || _cmapPriority(entry) > _cmapPriority(unicode!))) {
+        unicode = entry;
+      }
     }
+  }
+
+  int _cmapPriority(_CmapEntry entry) {
+    if (entry.format == 12 && entry.platformID == 3 && entry.encodingID == 10) {
+      return 4;
+    }
+    if (entry.format == 12 && entry.platformID == 0) return 3;
+    if (entry.format == 4 && entry.platformID == 3 && entry.encodingID == 1) {
+      return 2;
+    }
+    if (entry.format == 4 && entry.platformID == 0) return 1;
+    return 0;
   }
 
   static Map<String, dynamic> encode(Map<int, int> charmap,
@@ -672,7 +741,12 @@ class _NameTable extends _TtfTable {
 
     for (final entry in entries) {
       data.pos = entry['offset']!;
-      final text = data.readString(entry['length']!);
+      final bytes = data.read(entry['length']!);
+      final text = _decodeNameBytes(
+        bytes,
+        entry['platformID']!,
+        entry['encodingID']!,
+      );
       final name = _NameEntry(
         text,
         entry['platformID']!,
@@ -684,18 +758,46 @@ class _NameTable extends _TtfTable {
 
     // postscriptName — nameID 6 ou fallback para 4
     try {
-      postscriptName = strings[6]![0]
-          .raw
-          .replaceAll(RegExp(r'[\x00-\x19\x80-\xff]'), '');
+      postscriptName = _safePostScriptName(strings[6]![0].raw);
     } catch (_) {
       try {
-        postscriptName = strings[4]![0]
-            .raw
-            .replaceAll(RegExp(r'[\x00-\x19\x80-\xff]'), '');
+        postscriptName = _safePostScriptName(strings[4]![0].raw);
       } catch (_) {
         postscriptName = 'Unknown';
       }
     }
+  }
+
+  String? getName(int nameId, {int? languageID}) {
+    final values = strings[nameId];
+    if (values == null || values.isEmpty) return null;
+    if (languageID != null) {
+      for (final value in values) {
+        if (value.languageID == languageID) return value.raw;
+      }
+    }
+    for (final value in values) {
+      if (value.platformID == 3 && value.languageID == 0x0409) return value.raw;
+    }
+    return values.first.raw;
+  }
+
+  String _decodeNameBytes(List<int> bytes, int platformID, int encodingID) {
+    if (platformID == 0 || platformID == 3) {
+      final buffer = StringBuffer();
+      for (var i = 0; i + 1 < bytes.length; i += 2) {
+        buffer.writeCharCode((bytes[i] << 8) | bytes[i + 1]);
+      }
+      return buffer.toString();
+    }
+    return String.fromCharCodes(bytes.map((byte) => byte & 0xff));
+  }
+
+  String _safePostScriptName(String value) {
+    final cleaned = value
+        .replaceAll(RegExp(r'\s+'), '')
+        .replaceAll(RegExp(r'[^!#-;=?-~]'), '');
+    return cleaned.isEmpty ? 'Unknown' : cleaned;
   }
 }
 
@@ -864,7 +966,6 @@ class _CompoundGlyph extends _Glyph {
       final flags = data.readShort();
       glyphOffsets.add(data.pos);
       glyphIDs.add(data.readUInt16());
-      if (flags & _moreComponents == 0) break;
       if (flags & _arg12AreWords != 0) {
         data.pos += 4;
       } else {
@@ -877,7 +978,21 @@ class _CompoundGlyph extends _Glyph {
       } else if (flags & _weHaveAScale != 0) {
         data.pos += 2;
       }
+      if (flags & _moreComponents == 0) break;
     }
+  }
+
+  @override
+  List<int> encode([Map<int, int>? old2new]) {
+    if (old2new == null || old2new.isEmpty) return raw.data;
+    final encoded = List<int>.from(raw.data);
+    for (var i = 0; i < glyphIDs.length; i++) {
+      final newId = old2new[glyphIDs[i]] ?? glyphIDs[i];
+      final offset = glyphOffsets[i];
+      encoded[offset] = (newId >> 8) & 0xff;
+      encoded[offset + 1] = newId & 0xff;
+    }
+    return encoded;
   }
 }
 
@@ -948,15 +1063,24 @@ class _Subset {
   _Subset(this.font);
 
   Map<int, int> generateCmap() {
-    final unicodeCmap = font.cmap.tables.isNotEmpty
-        ? font.cmap.tables[0].codeMap
-        : <int, int>{};
+    final unicodeCmap = font.cmap.unicode?.codeMap ?? <int, int>{};
     final mapping = <int, int>{};
-    for (final entry in subset.entries) {
-      final roman = entry.key;
-      final unicode = entry.value;
-      if (unicodeCmap.containsKey(unicode)) {
-        mapping[roman] = unicodeCmap[unicode]!;
+    if (font.toUnicode.isNotEmpty) {
+      for (final entry in font.toUnicode.entries) {
+        final glyphId = entry.key;
+        final unicode = entry.value;
+        if (unicodeCmap[unicode] == glyphId) {
+          mapping[unicode] = glyphId;
+        }
+      }
+      return mapping;
+    }
+    for (final glyphId in font.glyIdsUsed.toSet()) {
+      for (final entry in unicodeCmap.entries) {
+        if (entry.value == glyphId) {
+          mapping[entry.key] = glyphId;
+          break;
+        }
       }
     }
     return mapping;
@@ -981,15 +1105,16 @@ class _Subset {
   }
 
   List<int> encode(List<int> glyIDs, int indexToLocFormat) {
+    final normalizedGlyphIds = <int>{0, ...glyIDs}.toList()..sort();
     final cmap = _CmapTable.encode(generateCmap(), 'unicode');
-    final glyphs = glyphsFor(glyIDs);
+    final glyphs = glyphsFor(normalizedGlyphIds);
     final old2new = <int, int>{0: 0};
     final charMapData = cmap['charMap'] as Map<int, Map<String, int>>;
     for (final ids in charMapData.values) {
       old2new[ids['old']!] = ids['new']!;
     }
     var nextGlyphID = cmap['maxGlyphID'] as int;
-    for (final oldID in glyphs.keys) {
+    for (final oldID in glyphs.keys.toList()..sort()) {
       if (!old2new.containsKey(oldID)) {
         old2new[oldID] = nextGlyphID++;
       }
@@ -1112,6 +1237,11 @@ class TTFFont {
   /// Unicode data (para pdf encoding).
   late TtfUnicodeData unicodeData;
 
+  String get postScriptName => nameTable.postscriptName;
+  String? get fullName => nameTable.getName(4);
+  String? get familyName => nameTable.getName(1);
+  String? get subfamilyName => nameTable.getName(2);
+
   /// Abre/decodifica um arquivo TTF.
   factory TTFFont.open(List<int> rawData) => TTFFont(rawData);
 
@@ -1142,7 +1272,8 @@ class TTFFont {
 
     ascender = (os2.exists && os2.ascender != 0) ? os2.ascender : hhea.ascender;
     decender = (os2.exists && os2.decender != 0) ? os2.decender : hhea.decender;
-    lineGapScaled = (os2.exists && os2.lineGap != 0) ? os2.lineGap : hhea.lineGap;
+    lineGapScaled =
+        (os2.exists && os2.lineGap != 0) ? os2.lineGap : hhea.lineGap;
     bbox = [head.xMin, head.yMin, head.xMax, head.yMax];
   }
 
@@ -1166,8 +1297,12 @@ class TTFFont {
     ascender = (ascender * scaleFactor).round();
     decender = (decender * scaleFactor).round();
     lineGapScaled = (lineGapScaled * scaleFactor).round();
-    capHeight = (os2.exists && os2.capHeight != 0) ? os2.capHeight : ascender;
-    xHeight = (os2.exists) ? os2.xHeight : 0;
+    capHeight = (os2.exists && os2.capHeight != 0)
+        ? (os2.capHeight * scaleFactor).round()
+        : ascender;
+    xHeight = (os2.exists && os2.xHeight != 0)
+        ? (os2.xHeight * scaleFactor).round()
+        : 0;
 
     final familyClass = (os2.exists ? os2.familyClass : 0) >> 8;
     final isSerif = [1, 2, 3, 4, 5, 7].contains(familyClass);
@@ -1193,6 +1328,9 @@ class TTFFont {
     return cmap.unicode?.codeMap[character] ?? 0;
   }
 
+  /// Mapeia uma string Dart para code points Unicode, incluindo pares surrogate.
+  List<int> codePoints(String text) => text.runes.toList(growable: false);
+
   /// Largura de um glyph em milésimos.
   double widthOfGlyph(int glyph) {
     final scale = 1000.0 / head.unitsPerEm;
@@ -1202,10 +1340,9 @@ class TTFFont {
   /// Largura de uma string em pontos.
   double widthOfString(String str, double size, [double charSpace = 0]) {
     var width = 0.0;
-    for (var i = 0; i < str.length; i++) {
-      final charCode = str.codeUnitAt(i);
-      width += widthOfGlyph(characterToGlyph(charCode)) +
-          charSpace * (1000 / size);
+    for (final charCode in str.runes) {
+      width +=
+          widthOfGlyph(characterToGlyph(charCode)) + charSpace * (1000 / size);
     }
     return width * (size / 1000);
   }

@@ -18,8 +18,7 @@ String pdfEscape16(String text, TTFFont font) {
   final padz = ['', '0', '00', '000', '0000'];
   final ar = <String>[''];
 
-  for (var i = 0; i < text.length; i++) {
-    final charCode = text.codeUnitAt(i);
+  for (final charCode in text.runes) {
     final glyphId = font.characterToGlyph(charCode);
 
     // Registra o glyph como usado
@@ -85,7 +84,7 @@ String toUnicodeCmap(Map<int, int> map) {
 
     final unicode = map[code];
     if (unicode != null) {
-      final unicodeHex = unicode.toRadixString(16).padLeft(4, '0');
+      final unicodeHex = _unicodeToUtf16BeHex(unicode);
       final codeHex = code.toRadixString(16).padLeft(4, '0');
       range.add('<$codeHex><$unicodeHex>');
     }
@@ -102,6 +101,17 @@ String toUnicodeCmap(Map<int, int> map) {
   sb.write('end\nend');
 
   return sb.toString();
+}
+
+String _unicodeToUtf16BeHex(int codePoint) {
+  if (codePoint <= 0xffff) {
+    return codePoint.toRadixString(16).padLeft(4, '0');
+  }
+  final value = codePoint - 0x10000;
+  final high = 0xd800 + (value >> 10);
+  final low = 0xdc00 + (value & 0x3ff);
+  return high.toRadixString(16).padLeft(4, '0') +
+      low.toRadixString(16).padLeft(4, '0');
 }
 
 /// Dados para embedding de uma fonte Identity-H no PDF.
@@ -331,8 +341,7 @@ Map<String, dynamic> processUtf8Text({
     final charCode = text.codeUnitAt(s);
     bool? cmapConfirm;
     if (font.metadata.cmap.unicode != null) {
-      cmapConfirm =
-          font.metadata.cmap.unicode!.codeMap.containsKey(charCode);
+      cmapConfirm = font.metadata.cmap.unicode!.codeMap.containsKey(charCode);
     }
     if (cmapConfirm == true) {
       sb.write(text[s]);

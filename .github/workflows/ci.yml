@@ -1,0 +1,37 @@
+name: Dart CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Analyze and test
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.6.2'
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Analyze
+        run: dart analyze
+
+      - name: Run tests
+        run: dart test
+
+      - name: Compile VM smoke test
+        run: dart compile exe tool/vm_compile.dart -o .dart_tool/vm_compile
+
+      - name: Compile Web smoke test
+        run: dart compile js tool/vm_compile.dart -o .dart_tool/web_compile.js
